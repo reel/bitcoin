@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2018 The Bitcoin Core developers
+// Copyright (c) 2009-2020 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -11,20 +11,84 @@
 
 #include <boost/variant.hpp>
 
-#include <stdint.h>
+#include <string>
+
 
 static const bool DEFAULT_ACCEPT_DATACARRIER = true;
 
 class CKeyID;
 class CScript;
+struct ScriptHash;
+
+template<typename HashType>
+class BaseHash
+{
+protected:
+    HashType m_hash;
+
+public:
+    BaseHash() : m_hash() {}
+    BaseHash(const HashType& in) : m_hash(in) {}
+
+    unsigned char* begin()
+    {
+        return m_hash.begin();
+    }
+
+    const unsigned char* begin() const
+    {
+        return m_hash.begin();
+    }
+
+    unsigned char* end()
+    {
+        return m_hash.end();
+    }
+
+    const unsigned char* end() const
+    {
+        return m_hash.end();
+    }
+
+    operator std::vector<unsigned char>() const
+    {
+        return std::vector<unsigned char>{m_hash.begin(), m_hash.end()};
+    }
+
+    std::string ToString() const
+    {
+        return m_hash.ToString();
+    }
+
+    bool operator==(const BaseHash<HashType>& other) const noexcept
+    {
+        return m_hash == other.m_hash;
+    }
+
+    bool operator!=(const BaseHash<HashType>& other) const noexcept
+    {
+        return !(m_hash == other.m_hash);
+    }
+
+    bool operator<(const BaseHash<HashType>& other) const noexcept
+    {
+        return m_hash < other.m_hash;
+    }
+
+    size_t size() const
+    {
+        return m_hash.size();
+    }
+};
 
 /** A reference to a CScript: the Hash160 of its serialization (see script.h) */
-class CScriptID : public uint160
+class CScriptID : public BaseHash<uint160>
 {
 public:
-    CScriptID() : uint160() {}
+    CScriptID() : BaseHash() {}
     explicit CScriptID(const CScript& in);
-    CScriptID(const uint160& in) : uint160(in) {}
+    explicit CScriptID(const uint160& in) : BaseHash(in) {}
+    explicit CScriptID(const ScriptHash& in);
 };
 
 /**
@@ -45,10 +109,9 @@ extern unsigned nMaxDatacarrierBytes;
 /**
  * Mandatory script verification flags that all new blocks must comply with for
  * them to be valid. (but old blocks may not comply with) Currently just P2SH,
- * but in the future other flags may be added, such as a soft-fork to enforce
- * strict DER encoding.
+ * but in the future other flags may be added.
  *
- * Failing one of these tests may trigger a DoS ban - see CheckInputs() for
+ * Failing one of these tests may trigger a DoS ban - see CheckInputScripts() for
  * details.
  */
 static const unsigned int MANDATORY_SCRIPT_VERIFY_FLAGS = SCRIPT_VERIFY_P2SH;
@@ -73,36 +136,44 @@ public:
     friend bool operator<(const CNoDestination &a, const CNoDestination &b) { return true; }
 };
 
-struct PKHash : public uint160
+struct PKHash : public BaseHash<uint160>
 {
-    PKHash() : uint160() {}
-    explicit PKHash(const uint160& hash) : uint160(hash) {}
+    PKHash() : BaseHash() {}
+    explicit PKHash(const uint160& hash) : BaseHash(hash) {}
     explicit PKHash(const CPubKey& pubkey);
-    using uint160::uint160;
+    explicit PKHash(const CKeyID& pubkey_id);
 };
+CKeyID ToKeyID(const PKHash& key_hash);
 
-struct ScriptHash : public uint160
+struct WitnessV0KeyHash;
+struct ScriptHash : public BaseHash<uint160>
 {
-    ScriptHash() : uint160() {}
-    explicit ScriptHash(const uint160& hash) : uint160(hash) {}
+    ScriptHash() : BaseHash() {}
+    // These don't do what you'd expect.
+    // Use ScriptHash(GetScriptForDestination(...)) instead.
+    explicit ScriptHash(const WitnessV0KeyHash& hash) = delete;
+    explicit ScriptHash(const PKHash& hash) = delete;
+
+    explicit ScriptHash(const uint160& hash) : BaseHash(hash) {}
     explicit ScriptHash(const CScript& script);
-    using uint160::uint160;
+    explicit ScriptHash(const CScriptID& script);
 };
 
-struct WitnessV0ScriptHash : public uint256
+struct WitnessV0ScriptHash : public BaseHash<uint256>
 {
-    WitnessV0ScriptHash() : uint256() {}
-    explicit WitnessV0ScriptHash(const uint256& hash) : uint256(hash) {}
+    WitnessV0ScriptHash() : BaseHash() {}
+    explicit WitnessV0ScriptHash(const uint256& hash) : BaseHash(hash) {}
     explicit WitnessV0ScriptHash(const CScript& script);
-    using uint256::uint256;
 };
 
-struct WitnessV0KeyHash : public uint160
+struct WitnessV0KeyHash : public BaseHash<uint160>
 {
-    WitnessV0KeyHash() : uint160() {}
-    explicit WitnessV0KeyHash(const uint160& hash) : uint160(hash) {}
-    using uint160::uint160;
+    WitnessV0KeyHash() : BaseHash() {}
+    explicit WitnessV0KeyHash(const uint160& hash) : BaseHash(hash) {}
+    explicit WitnessV0KeyHash(const CPubKey& pubkey);
+    explicit WitnessV0KeyHash(const PKHash& pubkey_hash);
 };
+CKeyID ToKeyID(const WitnessV0KeyHash& key_hash);
 
 //! CTxDestination subtype to encode any future Witness version
 struct WitnessUnknown
@@ -142,7 +213,7 @@ typedef boost::variant<CNoDestination, PKHash, ScriptHash, WitnessV0ScriptHash, 
 bool IsValidDestination(const CTxDestination& dest);
 
 /** Get the name of a txnouttype as a C string, or nullptr if unknown. */
-const char* GetTxnOutputType(txnouttype t);
+std::string GetTxnOutputType(txnouttype t);
 
 /**
  * Parse a scriptPubKey and identify script type for standard scripts. If

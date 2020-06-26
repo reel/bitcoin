@@ -34,338 +34,230 @@ How to Upgrade
 ==============
 
 If you are running an older version, shut it down. Wait until it has completely
-shut down (which might take a few minutes for older versions), then run the
+shut down (which might take a few minutes in some cases), then run the
 installer (on Windows) or just copy over `/Applications/Bitcoin-Qt` (on Mac)
 or `bitcoind`/`bitcoin-qt` (on Linux).
 
 Upgrading directly from a version of Bitcoin Core that has reached its EOL is
-possible, but might take some time if the datadir needs to be migrated.  Old
+possible, but it might take some time if the data directory needs to be migrated. Old
 wallet versions of Bitcoin Core are generally supported.
 
 Compatibility
 ==============
 
-Bitcoin Core is supported and extensively tested on operating systems using
-the Linux kernel, macOS 10.10+, and Windows 7 and newer. It is not recommended
-to use Bitcoin Core on unsupported systems.
+During this release cycle, work has been done to ensure that the codebase is fully
+compatible with C++17. The intention is to begin using C++17 features starting
+with the 0.22.0 release. This means that a compiler that supports C++17 will be
+required to compile 0.22.0.
 
-Bitcoin Core should also work on most other Unix-like systems but is not
-as frequently tested on them.
+Bitcoin Core is supported and extensively tested on operating systems
+using the Linux kernel, macOS 10.12+, and Windows 7 and newer.  Bitcoin
+Core should also work on most other Unix-like systems but is not as
+frequently tested on them.  It is not recommended to use Bitcoin Core on
+unsupported systems.
 
-From 0.17.0 onwards, macOS <10.10 is no longer supported. 0.17.0 is
-built using Qt 5.9.x, which doesn't support versions of macOS older than
-10.10. Additionally, Bitcoin Core does not yet change appearance when
-macOS "dark mode" is activated.
-
-In addition to previously-supported CPU platforms, this release's
-pre-compiled distribution also provides binaries for the RISC-V
-platform.
+From Bitcoin Core 0.20.0 onwards, macOS versions earlier than 10.12 are no
+longer supported. Additionally, Bitcoin Core does not yet change appearance
+when macOS "dark mode" is activated.
 
 Notable changes
 ===============
 
-New user documentation
-----------------------
+P2P and network changes
+-----------------------
 
-- [Reduce memory](https://github.com/bitcoin/bitcoin/blob/master/doc/reduce-memory.md)
-  suggests configuration tweaks for running Bitcoin Core on systems with
-  limited memory. (#16339)
-
-New RPCs
---------
-
-- `getbalances` returns an object with all balances (`mine`,
-  `untrusted_pending` and `immature`). Please refer to the RPC help of
-  `getbalances` for details. The new RPC is intended to replace
-  `getbalance`, `getunconfirmedbalance`, and the balance fields in
-  `getwalletinfo`.  These old calls and fields may be removed in a
-  future version. (#15930, #16239)
-
-- `setwalletflag` sets and unsets wallet flags that enable or disable
-  features specific to that existing wallet, such as the new
-  `avoid_reuse` feature documented elsewhere in these release notes.
-  (#13756)
-
-- `getblockfilter` gets the BIP158 filter for the specified block.  This
-  RPC is only enabled if block filters have been created using the
-  `-blockfilterindex` configuration option. (#14121)
-
-New settings
-------------
-
-- `-blockfilterindex` enables the creation of BIP158 block filters for
-  the entire blockchain.  Filters will be created in the background and
-  currently use about 4 GiB of space.  Note: this version of Bitcoin
-  Core does not serve block filters over the P2P network, although the
-  local user may obtain block filters using the `getblockfilter` RPC.
-  (#14121)
-
-Updated settings
-----------------
-
-- `whitebind` and `whitelist` now accept a list of permissions to
-  provide peers connecting using the indicated interfaces or IP
-  addresses.  If no permissions are specified with an address or CIDR
-  network, the implicit default permissions are the same as previous
-  releases.  See the `bitcoind -help` output for these two options for
-  details about the available permissions. (#16248)
+- The mempool now tracks whether transactions submitted via the wallet or RPCs
+  have been successfully broadcast. Every 10-15 minutes, the node will try to
+  announce unbroadcast transactions until a peer requests it via a `getdata`
+  message or the transaction is removed from the mempool for other reasons.
+  The node will not track the broadcast status of transactions submitted to the
+  node using P2P relay. This version reduces the initial broadcast guarantees
+  for wallet transactions submitted via P2P to a node running the wallet. (#18038)
 
 Updated RPCs
 ------------
 
-Note: some low-level RPC changes mainly useful for testing are described in the
-Low-level Changes section below.
+- `getmempoolinfo` now returns an additional `unbroadcastcount` field. The
+  mempool tracks locally submitted transactions until their initial broadcast
+  is acknowledged by a peer. This field returns the count of transactions
+  waiting for acknowledgement.
 
-- `sendmany` no longer has a `minconf` argument.  This argument was not
-  well specified and would lead to RPC errors even when the wallet's
-  coin selection succeeded.  Users who want to influence coin selection
-  can use the existing `-spendzeroconfchange`, `-limitancestorcount`,
-  `-limitdescendantcount` and `-walletrejectlongchains` configuration
-  arguments. (#15596)
+- Mempool RPCs such as `getmempoolentry` and `getrawmempool` with
+  `verbose=true` now return an additional `unbroadcast` field. This indicates
+  whether initial broadcast of the transaction has been acknowledged by a
+  peer. `getmempoolancestors` and `getmempooldescendants` are also updated.
 
-- `getbalance` and `sendtoaddress`, plus the new RPCs `getbalances` and
-  `createwallet`, now accept an "avoid_reuse" parameter that controls
-  whether already used addresses should be included in the operation.
-  Additionally, `sendtoaddress` will avoid partial spends when
-  `avoid_reuse` is enabled even if this feature is not already enabled
-  via the `-avoidpartialspends` command line flag because not doing so
-  would risk using up the "wrong" UTXO for an address reuse case.
-  (#13756)
 
-- `listunspent` now returns a "reused" bool for each output if the
-  wallet flag "avoid_reuse" is enabled. (#13756)
+Changes to Wallet or GUI related RPCs can be found in the GUI or Wallet section below.
 
-- `getblockstats` now uses BlockUndo data instead of the transaction
-  index, making it much faster, no longer dependent on the `-txindex`
-  configuration option, and functional for all non-pruned blocks.
-  (#14802)
+New RPCs
+--------
 
-- `utxoupdatepsbt` now accepts a `descriptors` parameter that will fill
-  out input and output scripts and keys when known. P2SH-witness inputs
-  will be filled in from the UTXO set when a descriptor is provided that
-  shows they're spending segwit outputs.  See the RPC help text for full
-  details. (#15427)
-
-- `sendrawtransaction` and `testmempoolaccept` no longer accept a
-  `allowhighfees` parameter to fail mempool acceptance if the
-  transaction fee exceedes the value of the configuration option
-  `-maxtxfee`.  Now there is a hardcoded default maximum feerate that
-  can be changed when calling either RPC using a `maxfeerate` parameter.
-  (#15620)
-
-- `getmempoolancestors`, `getmempooldescendants`, `getmempoolentry`, and
-  `getrawmempool` no longer return a `size` field unless the
-  configuration option `-deprecatedrpc=size` is used.  Instead a new
-  `vsize` field is returned with the transaction's virtual size
-  (consistent with other RPCs such as `getrawtransaction`). (#15637)
-
-- `getwalletinfo` now includes a `scanning` field that is either `false`
-  (no scanning) or an object with information about the duration and
-  progress of the wallet's scanning historical blocks for transactions
-  affecting its balances. (#15730)
-
-- `createwallet` accepts a new `passphrase` parameter.  If set, this
-  will create the new wallet encrypted with the given passphrase.  If
-  unset (the default) or set to an empty string, no encryption will be
-  used. (#16394)
-
-- `getmempoolentry` now provides a `weight` field containing the
-  transaction weight as defined in BIP141. (#16647)
-
-- `getdescriptorinfo` now returns an additional `checksum` field
-  containing the checksum for the unmodified descriptor provided by the
-  user (that is, before the descriptor is normalized for the
-  `descriptor` field). (#15986)
-
-- `walletcreatefundedpsbt` now signals BIP125 Replace-by-Fee if the
-  `-walletrbf` configuration option is set to true. (#15911)
-
-GUI changes
------------
-
-- Provides bech32 addresses by default.  The user may change the address
-  during invoice generation using a GUI toggle, or the default address
-  type may be changed by the `-addresstype` configuration option.
-  (#15711, #16497)
-
-Deprecated or removed configuration options
--------------------------------------------
-
-- `-mempoolreplacement` is removed, although default node behavior
-  remains the same.  This option previously allowed the user to prevent
-  the node from accepting or relaying BIP125 transaction replacements.
-  This is different from the remaining configuration option
-  `-walletrbf`. (#16171)
-
-Deprecated or removed RPCs
---------------------------
-
-- `bumpfee` no longer accepts a `totalFee` option unless the
-  configuration parameter `deprecatedrpc=totalFee` is specified.  This
-  parameter will be fully removed in a subsequent release. (#15996)
-
-- `generate` is now removed after being deprecated in Bitcoin Core 0.18.
-  Use the `generatetoaddress` RPC instead. (#15492)
-
-P2P changes
------------
-
-- BIP 61 reject messages were deprecated in v0.18. They are now disabled
-  by default, but can be enabled by setting the `-enablebip61` command
-  line option.  BIP 61 reject messages will be removed entirely in a
-  future version of Bitcoin Core. (#14054)
-
-- To eliminate well-known denial-of-service vectors in Bitcoin Core,
-  especially for nodes with spinning disks, the default value for the
-  `-peerbloomfilters` configuration option has been changed to false.
-  This prevents Bitcoin Core from sending the BIP111 NODE_BLOOM service
-  flag, accepting BIP37 bloom filters, or serving merkle blocks or
-  transactions matching a bloom filter.  Users who still want to provide
-  bloom filter support may either set the configuration option to true
-  to re-enable both BIP111 and BIP37 support or enable just BIP37
-  support for specific peers using the updated `-whitelist` and
-  `-whitebind` configuration options described elsewhere in these
-  release notes.  For the near future, lightweight clients using public
-  BIP111/BIP37 nodes should still be able to connect to older versions
-  of Bitcoin Core and nodes that have manually enabled BIP37 support,
-  but developers of such software should consider migrating to either
-  using specific BIP37 nodes or an alternative transaction filtering
-  system. (#16152)
-
-Miscellaneous CLI Changes
--------------------------
-
-- The `testnet` field in `bitcoin-cli -getinfo` has been renamed to
-  `chain` and now returns the current network name as defined in BIP70
-  (main, test, regtest). (#15566)
-
-Low-level changes
-=================
-
-RPC
----
-
-- `getblockchaininfo` no longer returns a `bip9_softforks` object.
-  Instead, information has been moved into the `softforks` object and
-  an additional `type` field describes how Bitcoin Core determines
-  whether that soft fork is active (e.g. BIP9 or BIP90).  See the RPC
-  help for details. (#16060)
-
-- `getblocktemplate` no longer returns a `rules` array containing `CSV`
-  and `segwit` (the BIP9 deployments that are currently in active
-  state). (#16060)
-
-- `getrpcinfo` now returns a `logpath` field with the path to
-  `debug.log`. (#15483)
-
-Tests
------
-
-- The regression test chain enabled by the `-regtest` command line flag
-  now requires transactions to not violate standard policy by default.
-  This is the same default used for mainnet and makes it easier to test
-  mainnet behavior on regtest. Note that the testnet still allows
-  non-standard txs by default and that the policy can be locally
-  adjusted with the `-acceptnonstdtxn` command line flag for both test
-  chains. (#15891)
-
-Configuration
+Build System
 ------------
 
-- A setting specified in the default section but not also specified in a
-  network-specific section (e.g. testnet) will now produce a error
-  preventing startup instead of just a warning unless the network is
-  mainnet.  This prevents settings intended for mainnet from being
-  applied to testnet or regtest. (#15629)
+Updated settings
+----------------
 
-- On platforms supporting `thread_local`, log lines can be prefixed with
-  the name of the thread that caused the log. To enable this behavior,
-  use `-logthreadnames=1`. (#15849)
+- The `-debug=db` logging category, which was deprecated in 0.20 and replaced by
+  `-debug=walletdb` to distinguish it from `coindb`, has been removed. (#19202)
 
-Network
--------
+Changes to Wallet or GUI related settings can be found in the GUI or Wallet  section below.
 
-- When fetching a transaction announced by multiple peers, previous versions of
-  Bitcoin Core would sequentially attempt to download the transaction from each
-  announcing peer until the transaction is received, in the order that those
-  peers' announcements were received.  In this release, the download logic has
-  changed to randomize the fetch order across peers and to prefer sending
-  download requests to outbound peers over inbound peers. This fixes an issue
-  where inbound peers could prevent a node from getting a transaction.
-  (#14897, #15834)
-
-- If a Tor hidden service is being used, Bitcoin Core will be bound to
-  the standard port 8333 even if a different port is configured for
-  clearnet connections.  This prevents leaking node identity through use
-  of identical non-default port numbers. (#15651)
-
-Mempool and transaction relay
------------------------------
-
-- Allows one extra single-ancestor transaction per package.  Previously,
-  if a transaction in the mempool had 25 descendants, or it and all of
-  its descendants were over 101,000 vbytes, any newly-received
-  transaction that was also a descendant would be ignored.  Now, one
-  extra descendant will be allowed provided it is an immediate
-  descendant (child) and the child's size is 10,000 vbytes or less.
-  This makes it possible for two-party contract protocols such as
-  Lightning Network to give each participant an output they can spend
-  immediately for Child-Pays-For-Parent (CPFP) fee bumping without
-  allowing one malicious participant to fill the entire package and thus
-  prevent the other participant from spending their output. (#15681)
-
-- Transactions with outputs paying v1 to v16 witness versions (future
-  segwit versions) are now accepted into the mempool, relayed, and
-  mined.  Attempting to spend those outputs remains forbidden by policy
-  ("non-standard").  When this change has been widely deployed, wallets
-  and services can accept any valid bech32 Bitcoin address without
-  concern that transactions paying future segwit versions will become
-  stuck in an unconfirmed state. (#15846)
-
-- Legacy transactions (transactions with no segwit inputs) must now be
-  sent using the legacy encoding format, enforcing the rule specified in
-  BIP144.  (#14039)
+New settings
+------------
 
 Wallet
 ------
 
-- When in pruned mode, a rescan that was triggered by an `importwallet`,
-  `importpubkey`, `importaddress`, or `importprivkey` RPC will only fail
-  when blocks have been pruned. Previously it would fail when `-prune`
-  has been set.  This change allows setting `-prune` to a high value
-  (e.g. the disk size) without the calls to any of the import RPCs
-  failing until the first block is pruned. (#15870)
+- To improve wallet privacy, the frequency of wallet rebroadcast attempts is
+  reduced from approximately once every 15 minutes to once every 12-36 hours.
+  To maintain a similar level of guarantee for initial broadcast of wallet
+  transactions, the mempool tracks these transactions as a part of the newly
+  introduced unbroadcast set. See the "P2P and network changes" section for
+  more information on the unbroadcast set. (#18038)
 
-- When creating a transaction with a fee above `-maxtxfee` (default 0.1
-  BTC), the RPC commands `walletcreatefundedpsbt` and
-  `fundrawtransaction` will now fail instead of rounding down the fee.
-  Be aware that the `feeRate` argument is specified in BTC per 1,000
-  vbytes, not satoshi per vbyte. (#16257)
+- The wallet can create a transaction without change even when the keypool is
+  empty. Previously it failed. (#17219)
 
-- A new wallet flag `avoid_reuse` has been added (default off). When
-  enabled, a wallet will distinguish between used and unused addresses,
-  and default to not use the former in coin selection.  When setting
-  this flag on an existing wallet, rescanning the blockchain is required
-  to correctly mark previously used destinations.  Together with "avoid
-  partial spends" (added in Bitcoin Core v0.17.0), this can eliminate a
-  serious privacy issue where a malicious user can track spends by
-  sending small payments to a previously-paid address that would then
-  be included with unrelated inputs in future payments. (#13756)
+- The `-salvagewallet` startup option has been removed. A new `salvage` command
+  has been added to the `bitcoin-wallet` tool which performs the salvage
+  operations that `-salvagewallet` did. (#18918)
 
-Build system changes
---------------------
+### Experimental Descriptor Wallets
 
-- Python >=3.5 is now required by all aspects of the project. This
-  includes the build systems, test framework and linters. The previously
-  supported minimum (3.4), was EOL in March 2019. (#14954)
+Please note that Descriptor Wallets are still experimental and not all expected functionality
+is available. Additionally there may be some bugs and current functions may change in the future.
+Bugs and missing functionality can be reported to the [issue tracker](https://github.com/bitcoin/bitcoin/issues).
 
-- The minimum supported miniUPnPc API version is set to 10. This keeps
-  compatibility with Ubuntu 16.04 LTS and Debian 8 `libminiupnpc-dev`
-  packages. Please note, on Debian this package is still vulnerable to
-  [CVE-2017-8798](https://security-tracker.debian.org/tracker/CVE-2017-8798)
-  (in jessie only) and
-  [CVE-2017-1000494](https://security-tracker.debian.org/tracker/CVE-2017-1000494)
-  (both in jessie and in stretch). (#15993)
+0.21 introduces a new type of wallet - Descriptor Wallets. Descriptor Wallets store
+scriptPubKey information using descriptors. This is in contrast to the Legacy Wallet
+structure where keys are used to generate scriptPubKeys and addresses. Because of this
+shift to being script based instead of key based, many of the confusing things that Legacy
+Wallets do are not possible with Descriptor Wallets. Descriptor Wallets use a definition
+of "mine" for scripts which is simpler and more intuitive than that used by Legacy Wallets.
+Descriptor Wallets also uses different semantics for watch-only things and imports.
+
+As Descriptor Wallets are a new type of wallet, their introduction does not affect existing wallets.
+Users who already have a Bitcoin Core wallet can continue to use it as they did before without
+any change in behavior. Newly created Legacy Wallets (which is the default type of wallet) will
+behave as they did in previous versions of Bitcoin Core.
+
+The differences between Descriptor Wallets and Legacy Wallets are largely limited to non user facing
+things. They are intended to behave similarly except for the import/export and watchonly functionality
+as described below.
+
+#### Creating Descriptor Wallets
+
+Descriptor Wallets are not created by default. They must be explicitly created using the
+`createwallet` RPC or via the GUI. A `descriptors` option has been added to `createwallet`.
+Setting `descriptors` to `true` will create a Descriptor Wallet instead of a Legacy Wallet.
+
+In the GUI, a checkbox has been added to the Create Wallet Dialog to indicate that a
+Descriptor Wallet should be created.
+
+Without those options being set, a Legacy Wallet will be created instead. Additionally the
+Default Wallet created upon first startup of Bitcoin Core will be a Legacy Wallet.
+
+#### `IsMine` Semantics
+
+`IsMine` refers to the function used to determine whether a script belongs to the wallet.
+This is used to determine whether an output belongs to the wallet. `IsMine` in Legacy Wallets
+returns true if the wallet would be able to sign an input that spends an output with that script.
+Since keys can be involved in a variety of different scripts, this definition for `IsMine` can
+lead to many unexpected scripts being considered part of the wallet.
+
+With Descriptor Wallets, descriptors explicitly specify the set of scripts that are owned by
+the wallet. Since descriptors are deterministic and easily enumerable, users will know exactly
+what scripts the wallet will consider to belong to it. Additionally the implementation of `IsMine`
+in Descriptor Wallets is far simpler than for Legacy Wallets. Notably, in Legacy Wallets, `IsMine`
+allowed for users to take one type of address (e.g. P2PKH), mutate it into another address type
+(e.g. P2WPKH), and the wallet would still detect outputs sending to the new address type
+even without that address being requested from the wallet. Descriptor Wallets does not
+allow for this and will only watch for the addresses that were explicitly requested from the wallet.
+
+These changes to `IsMine` will make it easier to reason about what scripts the wallet will
+actually be watching for in outputs. However for the vast majority of users, this change is
+largely transparent and will not have noticeable effect.
+
+#### Imports and Exports
+
+In Legacy Wallets, raw scripts and keys could be imported to the wallet. Those imported scripts
+and keys are treated separately from the keys generated by the wallet. This complicates the `IsMine`
+logic as it has to distinguish between spendable and watchonly.
+
+Descriptor Wallets handle importing scripts and keys differently. Only complete descriptors can be
+imported. These descriptors are then added to the wallet as if it were a descriptor generated by
+the wallet itself. This simplifies the `IsMine` logic so that it no longer has to distinguish
+between spendable and watchonly. As such, the watchonly model for Descriptor Wallets is also
+different and described in more detail in the next section.
+
+To import into a Descriptor Wallet, a new `importdescriptors` RPC has been added that uses a syntax
+similar to that of `importmulti`.
+
+As Legacy Wallets and Descriptor Wallets use different mechanisms for storing and importing scripts and keys
+the existing import RPCs have been disabled for descriptor wallets.
+New export RPCs for Descriptor Wallets have not yet been added.
+
+The following RPCs are disabled for Descriptor Wallets:
+
+* importprivkey
+* importpubkey
+* importaddress
+* importwallet
+* dumpprivkey
+* dumpwallet
+* importmulti
+* addmultisigaddress
+* sethdseed
+
+#### Watchonly Wallets
+
+A Legacy Wallet contains both private keys and scripts that were being watched.
+Those watched scripts would not contribute to your normal balance. In order to see the watchonly
+balance and to use watchonly things in transactions, an `include_watchonly` option was added
+to many RPCs that would allow users to do that. However it is easy to forget to include this option.
+
+Descriptor Wallets move to a per-wallet watchonly model. Instead an entire wallet is considered to be
+watchonly depending on whether it was created with private keys disabled. This eliminates the need
+to distinguish between things that are watchonly and things that are not within a wallet itself.
+
+This change does have a caveat. If a Descriptor Wallet with private keys *enabled* has
+a multiple key descriptor without all of the private keys (e.g. `multi(...)` with only one private key),
+then the wallet will fail to sign and broadcast transactions. Such wallets would need to use the PSBT
+workflow but the typical GUI Send, `sendtoaddress`, etc. workflows would still be available, just
+non-functional.
+
+This issue is worsened if the wallet contains both single key (e.g. `wpkh(...)`) descriptors and such
+multiple key descriptors as some transactions could be signed and broadast and others not. This is
+due to some transactions containing only single key inputs, while others would contain both single
+key and multiple key inputs, depending on which are available and how the coin selection algorithm
+selects inputs. However this is not considered to be a supported use case; multisigs
+should be in their own wallets which do not already have descriptors. Although users cannot export
+descriptors with private keys for now as explained earlier.
+
+#### BIP 44/49/84 Support
+
+The change to using descriptors changes the default derivation paths used by Bitcoin Core
+to adhere to BIP 44/49/84. Descriptors with different derivation paths can be imported without
+issue.
+
+### Wallet RPC changes
+
+- The `upgradewallet` RPC replaces the `-upgradewallet` command line option.
+  (#15761)
+- The `settxfee` RPC will fail if the fee was set higher than the `-maxtxfee`
+  command line setting. The wallet will already fail to create transactions
+  with fees higher than `-maxtxfee`. (#18467)
+
+GUI changes
+-----------
+
+Low-level changes
+=================
+
+Tests
+-----
 
 Credits
 =======
@@ -373,4 +265,5 @@ Credits
 Thanks to everyone who directly contributed to this release:
 
 
-As well as everyone that helped translating on [Transifex](https://www.transifex.com/bitcoin/bitcoin/).
+As well as to everyone that helped with translations on
+[Transifex](https://www.transifex.com/bitcoin/bitcoin/).

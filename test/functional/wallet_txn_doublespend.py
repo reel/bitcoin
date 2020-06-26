@@ -16,6 +16,7 @@ from test_framework.util import (
 class TxnMallTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 4
+        self.supports_cli = False
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
@@ -28,7 +29,6 @@ class TxnMallTest(BitcoinTestFramework):
         # Start with split network:
         super().setup_network()
         disconnect_nodes(self.nodes[1], 2)
-        disconnect_nodes(self.nodes[2], 1)
 
     def run_test(self):
         # All nodes should start with 1,250 BTC:
